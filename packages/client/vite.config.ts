@@ -3,10 +3,16 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
+  base: process.env.NODE_ENV === 'production' ? '/agent-factory-smallville/' : '/',
   server: {
     port: 5173,
     proxy: {
       '/api': 'http://localhost:3001'
     }
+  },
+  build: {
+    outDir: 'dist',
+    assetsDir: 'assets',
+    sourcemap: true
   }
 })
