@@ -1,134 +1,89 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createGame, GameInstance } from '../game/index.js';
 import { useAppStore } from '../store/index.js';
-import { wsService } from '../services/websocket.js';
 import { Agent } from '@agent-factory/shared';
+import MainScene from '../game/scenes/MainScene.js';
 
-interface GameProps {
-  className?: string;
-}
+const Game: React.FC<{ className?: string }> = ({ className }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const gameRef = useRef<GameInstance | null>(null);
+  const sceneRef = useRef<MainScene | null>(null);
+  const [ready, setReady] = useState(false);
 
-const Game: React.FC<GameProps> = ({ className }) => {
-  const gameContainerRef = useRef<HTMLDivElement>(null);
-  const gameInstanceRef = useRef<GameInstance | null>(null);
-  const [gameReady, setGameReady] = useState(false);
-  
-  // Subscribe to store
-  const agents = useAppStore(state => state.agents);
-  const selectedAgentId = useAppStore(state => state.selectedAgentId);
-  const selectAgent = useAppStore(state => state.selectAgent);
+  const agents = useAppStore(s => s.agents);
+  const selectAgent = useAppStore(s => s.selectAgent);
 
-  // Initialize game
+  // Init game
   useEffect(() => {
-    if (gameContainerRef.current && !gameInstanceRef.current) {
-      console.log('🎮 Initializing Phaser game');
-      
-      try {
-        const gameInstance = createGame(gameContainerRef.current);
-        gameInstanceRef.current = gameInstance;
-        
-        // Set up game scene reference for WebSocket service
-        wsService.setGameScene(gameInstance.scene);
-        
-        // Set up event listeners
-        gameInstance.scene.events.on('agentSelected', (agentId: string) => {
-          selectAgent(agentId);
-          wsService.selectAgent(agentId);
-        });
-        
-        // Wait for scene to be ready
-        gameInstance.scene.events.once('create', () => {
-          console.log('✅ Game scene created');
-          setGameReady(true);
-        });
-        
-      } catch (error) {
-        console.error('❌ Failed to initialize game:', error);
-      }
-    }
+    if (!containerRef.current || gameRef.current) return;
 
-    // Cleanup on unmount
+    const gi = createGame(containerRef.current);
+    gameRef.current = gi;
+
+    // Wait for scene to actually be ready
+    const check = setInterval(() => {
+      const scene = gi.getScene();
+      if (scene && scene.scene.isActive()) {
+        clearInterval(check);
+        sceneRef.current = scene;
+
+        scene.events.on('agentSelected', (id: string | null) => {
+          selectAgent(id);
+        });
+
+        // Also listen for sceneReady event (belt + suspenders)
+        setReady(true);
+        console.log('✅ Game scene connected');
+      }
+    }, 100);
+
     return () => {
-      if (gameInstanceRef.current) {
-        console.log('🧹 Cleaning up game instance');
-        gameInstanceRef.current.destroy();
-        gameInstanceRef.current = null;
-        setGameReady(false);
+      clearInterval(check);
+      if (gameRef.current) {
+        gameRef.current.destroy();
+        gameRef.current = null;
+        sceneRef.current = null;
+        setReady(false);
       }
     };
   }, [selectAgent]);
 
-  // Update agents in game when store changes
+  // Sync agents to game
   useEffect(() => {
-    if (gameReady && gameInstanceRef.current) {
-      const gameScene = gameInstanceRef.current.scene;
-      const agentArray = Object.values(agents);
-      
-      console.log(`🎮 Updating ${agentArray.length} agents in game`);
-      
-      agentArray.forEach((agent: Agent) => {
-        // Check if agent already exists in game
-        const existingAgents = (gameScene as any).agents;
-        
-        if (existingAgents && existingAgents.has(agent.id)) {
-          // Update existing agent
-          gameScene.updateAgent(agent.id, agent);
-        } else {
-          // Add new agent
-          gameScene.addAgent(agent);
-        }
-      });
-    }
-  }, [agents, gameReady]);
+    if (!ready || !sceneRef.current) return;
+    const scene = sceneRef.current;
+    const agentArr = Object.values(agents);
 
-  // Handle agent selection from outside
-  useEffect(() => {
-    if (gameReady && gameInstanceRef.current && selectedAgentId) {
-      gameInstanceRef.current.scene.selectAgent(selectedAgentId);
-    }
-  }, [selectedAgentId, gameReady]);
-
-  // Handle window resize
-  useEffect(() => {
-    const handleResize = () => {
-      if (gameInstanceRef.current) {
-        gameInstanceRef.current.game.scale.refresh();
-      }
-    };
-
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
+    agentArr.forEach((agent: Agent) => {
+      scene.addAgent(agent); // addAgent checks if already exists
+      scene.updateAgent(agent.id, agent);
+    });
+  }, [agents, ready]);
 
   return (
-    <div className={`game-container ${className || ''}`}>
-      <div 
-        ref={gameContainerRef} 
-        className="game-canvas"
-        style={{ 
-          width: '100%', 
-          height: '100%',
-          backgroundColor: '#2c3e50',
-          position: 'relative'
-        }}
+    <div className={`game-wrapper ${className || ''}`} style={{ position: 'relative', width: '100%', height: '100%' }}>
+      <div
+        ref={containerRef}
+        style={{ width: '100%', height: '100%', backgroundColor: '#1a1a2e' }}
       />
-      
-      {!gameReady && (
-        <div className="game-loading">
-          <div className="loading-spinner">
-            <div className="spinner"></div>
-            <p>加载游戏场景中...</p>
-          </div>
+      {!ready && (
+        <div style={{
+          position: 'absolute', inset: 0,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          backgroundColor: '#1a1a2e', color: '#ccc', flexDirection: 'column', gap: 12,
+        }}>
+          <div style={{ fontSize: 20 }}>🏘️ Agent Factory Smallville</div>
+          <div style={{ fontSize: 14, opacity: 0.6 }}>加载中...</div>
         </div>
       )}
-      
-      <div className="game-controls">
-        <div className="control-hint">
-          <small>
-            🎮 使用方向键移动视角 | 鼠标滚轮缩放 | 点击代理查看详情
-          </small>
+      {ready && (
+        <div style={{
+          position: 'absolute', bottom: 8, left: 8,
+          fontSize: 11, color: '#888', pointerEvents: 'none',
+        }}>
+          🎮 拖动平移 | 滚轮缩放 | 点击代理查看详情
         </div>
-      </div>
+      )}
     </div>
   );
 };

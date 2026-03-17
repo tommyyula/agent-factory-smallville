@@ -1,334 +1,230 @@
 import React from 'react';
 import { useAppStore } from '../store/index.js';
-import { Agent, Task, AgentStatus, TaskStatus } from '@agent-factory/shared';
+import { Agent, AgentStatus, TaskStatus } from '@agent-factory/shared';
+
+const STATUS_EMOJI: Record<string, string> = {
+  idle: '💤', thinking: '💭', executing: '⚙️',
+  communicating: '💬', error: '❌', sleeping: '😴',
+};
+
+const STATUS_LABEL: Record<string, string> = {
+  idle: '空闲', thinking: '思考中', executing: '执行中',
+  communicating: '通信中', error: '错误', sleeping: '休眠',
+};
+
+const STATUS_COLOR: Record<string, string> = {
+  idle: '#888', thinking: '#FFD700', executing: '#4CAF50',
+  communicating: '#00BCD4', error: '#F44336', sleeping: '#5C6BC0',
+};
 
 const Sidebar: React.FC = () => {
-  const { 
-    agents, 
-    tasks, 
-    messages, 
-    selectedAgentId, 
-    activePanel, 
-    systemStats,
-    mockMode,
-    connected,
-    setActivePanel,
-    selectAgent
-  } = useAppStore();
+  const agents = useAppStore(s => s.agents);
+  const tasks = useAppStore(s => s.tasks);
+  const messages = useAppStore(s => s.messages);
+  const selectedAgentId = useAppStore(s => s.selectedAgentId);
+  const activePanel = useAppStore(s => s.activePanel);
+  const setActivePanel = useAppStore(s => s.setActivePanel);
+  const selectAgent = useAppStore(s => s.selectAgent);
 
-  const agentArray = Object.values(agents);
-  const taskArray = Object.values(tasks);
+  const agentList = Object.values(agents);
+  const taskList = Object.values(tasks);
   const selectedAgent = selectedAgentId ? agents[selectedAgentId] : null;
 
-  const getStatusColor = (status: AgentStatus): string => {
-    const colors = {
-      [AgentStatus.IDLE]: '#808080',
-      [AgentStatus.THINKING]: '#FFD700', 
-      [AgentStatus.EXECUTING]: '#00FF00',
-      [AgentStatus.COMMUNICATING]: '#00BFFF',
-      [AgentStatus.ERROR]: '#FF0000',
-      [AgentStatus.SLEEPING]: '#666666',
-      [AgentStatus.OFFLINE]: '#333333'
-    };
-    return colors[status] || '#808080';
-  };
+  const tabs: { key: typeof activePanel; label: string; icon: string }[] = [
+    { key: 'agents', label: '代理', icon: '🤖' },
+    { key: 'tasks', label: '任务', icon: '📋' },
+    { key: 'messages', label: '消息', icon: '💬' },
+    { key: 'stats', label: '统计', icon: '📊' },
+  ];
 
-  const getStatusText = (status: AgentStatus): string => {
-    const texts = {
-      [AgentStatus.IDLE]: '空闲',
-      [AgentStatus.THINKING]: '思考中',
-      [AgentStatus.EXECUTING]: '执行中',
-      [AgentStatus.COMMUNICATING]: '沟通中',
-      [AgentStatus.ERROR]: '错误',
-      [AgentStatus.SLEEPING]: '休息中',
-      [AgentStatus.OFFLINE]: '离线'
-    };
-    return texts[status] || '未知';
-  };
-
-  const getTaskStatusText = (status: TaskStatus): string => {
-    const texts = {
-      [TaskStatus.PENDING]: '待分配',
-      [TaskStatus.ASSIGNED]: '已分配',
-      [TaskStatus.IN_PROGRESS]: '进行中',
-      [TaskStatus.COMPLETED]: '已完成',
-      [TaskStatus.FAILED]: '失败',
-      [TaskStatus.CANCELLED]: '已取消'
-    };
-    return texts[status] || '未知';
-  };
-
-  const renderConnectionStatus = () => (
-    <div className="connection-status">
-      <div className={`status-indicator ${mockMode ? 'mock' : connected ? 'connected' : 'disconnected'}`}>
-        <span className="status-dot"></span>
-        <span className="status-text">
-          {mockMode ? '演示模式' : connected ? '已连接' : '连接中...'}
-        </span>
-      </div>
-    </div>
-  );
-
-  const renderAgentList = () => (
-    <div className="agent-list">
-      <h3>代理列表 ({agentArray.length})</h3>
-      <div className="agent-items">
-        {agentArray.map((agent: Agent) => (
-          <div 
-            key={agent.id}
-            className={`agent-item ${selectedAgentId === agent.id ? 'selected' : ''}`}
-            onClick={() => selectAgent(agent.id)}
+  return (
+    <div style={styles.sidebar}>
+      {/* Tabs */}
+      <div style={styles.tabs}>
+        {tabs.map(t => (
+          <button
+            key={t.key}
+            onClick={() => setActivePanel(t.key)}
+            style={{
+              ...styles.tab,
+              ...(activePanel === t.key ? styles.tabActive : {}),
+            }}
           >
-            <div className="agent-header">
-              <div className="agent-name">{agent.name}</div>
-              <div 
-                className="agent-status"
-                style={{ color: getStatusColor(agent.status) }}
-              >
-                {getStatusText(agent.status)}
+            {t.icon} {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Selected Agent Detail */}
+      {selectedAgent && (
+        <div style={styles.detail}>
+          <div style={styles.detailHeader}>
+            <span style={{ fontSize: 18 }}>👤</span>
+            <div>
+              <div style={styles.detailName}>{selectedAgent.name}</div>
+              <div style={styles.detailRole}>{selectedAgent.role}</div>
+            </div>
+            <button onClick={() => selectAgent(null)} style={styles.closeBtn}>✕</button>
+          </div>
+          <div style={styles.detailStatus}>
+            <span style={{ color: STATUS_COLOR[selectedAgent.status] }}>
+              {STATUS_EMOJI[selectedAgent.status]} {STATUS_LABEL[selectedAgent.status]}
+            </span>
+          </div>
+          {selectedAgent.metrics && (
+            <div style={styles.metrics}>
+              <div style={styles.metricRow}>
+                <span>完成任务</span><span>{selectedAgent.metrics.tasksCompleted}</span>
               </div>
-            </div>
-            <div className="agent-role">{agent.role}</div>
-            <div className="agent-metrics">
-              <span>完成任务: {agent.metrics.tasksCompleted}</span>
-              <span>消息: {agent.metrics.messagesSent}</span>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-
-  const renderTaskQueue = () => (
-    <div className="task-queue">
-      <h3>任务队列 ({taskArray.length})</h3>
-      <div className="task-items">
-        {taskArray.map((task: Task) => (
-          <div key={task.id} className="task-item">
-            <div className="task-header">
-              <div className="task-title">{task.title}</div>
-              <div className="task-priority">优先级: {task.priority}</div>
-            </div>
-            <div className="task-description">{task.description}</div>
-            <div className="task-info">
-              <div className="task-status">{getTaskStatusText(task.status)}</div>
-              {task.assignedTo && (
-                <div className="task-assignee">
-                  分配给: {agents[task.assignedTo]?.name || '未知'}
-                </div>
-              )}
-              {task.status === TaskStatus.IN_PROGRESS && (
-                <div className="task-progress">
-                  <div className="progress-bar">
-                    <div 
-                      className="progress-fill"
-                      style={{ width: `${task.progress}%` }}
-                    ></div>
-                  </div>
-                  <span>{Math.round(task.progress)}%</span>
-                </div>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-
-  const renderMessages = () => (
-    <div className="message-feed">
-      <h3>消息流 ({messages.length})</h3>
-      <div className="message-items">
-        {messages.slice(-20).map((message) => (
-          <div key={message.id} className="message-item">
-            <div className="message-header">
-              <span className="message-from">
-                {agents[message.fromAgent]?.name || message.fromAgent}
-              </span>
-              {message.toAgent && (
-                <>
-                  <span className="message-arrow">→</span>
-                  <span className="message-to">
-                    {agents[message.toAgent]?.name || message.toAgent}
-                  </span>
-                </>
-              )}
-              <span className="message-time">
-                {new Date(message.timestamp).toLocaleTimeString()}
-              </span>
-            </div>
-            <div className="message-content">{message.content}</div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-
-  const renderSystemStats = () => (
-    <div className="system-stats">
-      <h3>系统统计</h3>
-      <div className="stats-grid">
-        <div className="stat-item">
-          <div className="stat-label">总代理数</div>
-          <div className="stat-value">{systemStats.totalAgents}</div>
-        </div>
-        <div className="stat-item">
-          <div className="stat-label">活跃代理</div>
-          <div className="stat-value">{systemStats.activeAgents}</div>
-        </div>
-        <div className="stat-item">
-          <div className="stat-label">完成任务</div>
-          <div className="stat-value">{systemStats.completedTasks}</div>
-        </div>
-        <div className="stat-item">
-          <div className="stat-label">系统健康</div>
-          <div className="stat-value">
-            {Math.round(systemStats.systemHealth * 100)}%
-          </div>
-        </div>
-      </div>
-      
-      <div className="status-distribution">
-        <h4>代理状态分布</h4>
-        {Object.values(AgentStatus).map(status => {
-          const count = agentArray.filter(agent => agent.status === status).length;
-          if (count === 0) return null;
-          
-          return (
-            <div key={status} className="status-item">
-              <span 
-                className="status-indicator"
-                style={{ backgroundColor: getStatusColor(status) }}
-              ></span>
-              <span className="status-name">{getStatusText(status)}</span>
-              <span className="status-count">{count}</span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-
-  const renderAgentDetail = () => {
-    if (!selectedAgent) return null;
-
-    return (
-      <div className="agent-detail">
-        <h3>代理详情</h3>
-        <div className="detail-content">
-          <div className="basic-info">
-            <h4>{selectedAgent.name}</h4>
-            <p className="role">{selectedAgent.role}</p>
-            <div 
-              className="status"
-              style={{ color: getStatusColor(selectedAgent.status) }}
-            >
-              状态: {getStatusText(selectedAgent.status)}
-            </div>
-          </div>
-
-          {selectedAgent.currentTask && (
-            <div className="current-task">
-              <h4>当前任务</h4>
-              <div className="task-info">
-                <div className="task-title">{selectedAgent.currentTask.title}</div>
-                <div className="task-description">{selectedAgent.currentTask.description}</div>
-                <div className="task-progress">
-                  <div className="progress-bar">
-                    <div 
-                      className="progress-fill"
-                      style={{ width: `${selectedAgent.currentTask.progress}%` }}
-                    ></div>
-                  </div>
-                  <span>{Math.round(selectedAgent.currentTask.progress)}%</span>
-                </div>
+              <div style={styles.metricRow}>
+                <span>发送消息</span><span>{selectedAgent.metrics.messagesSent}</span>
+              </div>
+              <div style={styles.metricRow}>
+                <span>失败任务</span><span style={{ color: selectedAgent.metrics.tasksFailed > 0 ? '#F44336' : '#888' }}>{selectedAgent.metrics.tasksFailed}</span>
               </div>
             </div>
           )}
+          <div style={styles.divider} />
+        </div>
+      )}
 
-          <div className="capabilities">
-            <h4>能力</h4>
-            <div className="capability-tags">
-              {selectedAgent.capabilities.map(cap => (
-                <span key={cap} className="capability-tag">{cap}</span>
-              ))}
+      {/* Panel Content */}
+      <div style={styles.content}>
+        {activePanel === 'agents' && (
+          <div>
+            <div style={styles.sectionTitle}>代理列表 ({agentList.length})</div>
+            {agentList.map(a => (
+              <AgentItem key={a.id} agent={a} selected={a.id === selectedAgentId} onClick={() => selectAgent(a.id)} />
+            ))}
+          </div>
+        )}
+
+        {activePanel === 'tasks' && (
+          <div>
+            <div style={styles.sectionTitle}>任务队列 ({taskList.length})</div>
+            {taskList.map(t => {
+              const assignee = agents[t.assignedTo || ''];
+              return (
+                <div key={t.id} style={styles.taskItem}>
+                  <div style={styles.taskTitle}>{t.title}</div>
+                  <div style={styles.taskMeta}>
+                    <span style={{ color: t.status === TaskStatus.IN_PROGRESS ? '#4CAF50' : '#888' }}>
+                      {t.status === TaskStatus.IN_PROGRESS ? '进行中' : t.status === TaskStatus.COMPLETED ? '已完成' : '待处理'}
+                    </span>
+                    {assignee && <span style={{ color: '#aaa' }}> · {assignee.name}</span>}
+                  </div>
+                  {t.status === TaskStatus.IN_PROGRESS && (
+                    <div style={styles.progressBar}>
+                      <div style={{ ...styles.progressFill, width: `${t.progress || 0}%` }} />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {activePanel === 'messages' && (
+          <div>
+            <div style={styles.sectionTitle}>消息流</div>
+            {messages.length === 0 && <div style={styles.empty}>暂无消息</div>}
+            {messages.map(m => (
+              <div key={m.id} style={styles.messageItem}>
+                <div style={styles.messageContent}>{m.content}</div>
+                <div style={styles.messageTime}>
+                  {new Date(m.timestamp).toLocaleTimeString('zh-CN')}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {activePanel === 'stats' && (
+          <div>
+            <div style={styles.sectionTitle}>系统统计</div>
+            <div style={styles.statGrid}>
+              <StatCard label="总代理数" value={agentList.length} icon="🤖" />
+              <StatCard label="活跃代理" value={agentList.filter(a => a.status !== AgentStatus.IDLE && a.status !== AgentStatus.SLEEPING).length} icon="🟢" color="#4CAF50" />
+              <StatCard label="进行中任务" value={taskList.filter(t => t.status === TaskStatus.IN_PROGRESS).length} icon="⚡" color="#FF9800" />
+              <StatCard label="已完成任务" value={taskList.filter(t => t.status === TaskStatus.COMPLETED).length} icon="✅" color="#66BB6A" />
+              <StatCard label="消息总数" value={messages.length} icon="💬" color="#29B6F6" />
+              <StatCard label="错误代理" value={agentList.filter(a => a.status === AgentStatus.ERROR).length} icon="❌" color="#F44336" />
             </div>
           </div>
-
-          <div className="metrics">
-            <h4>性能指标</h4>
-            <div className="metric-grid">
-              <div className="metric-item">
-                <span className="metric-label">完成任务</span>
-                <span className="metric-value">{selectedAgent.metrics.tasksCompleted}</span>
-              </div>
-              <div className="metric-item">
-                <span className="metric-label">进行中</span>
-                <span className="metric-value">{selectedAgent.metrics.tasksInProgress}</span>
-              </div>
-              <div className="metric-item">
-                <span className="metric-label">平均时长</span>
-                <span className="metric-value">
-                  {Math.round(selectedAgent.metrics.averageTaskDuration / 60000)}分钟
-                </span>
-              </div>
-              <div className="metric-item">
-                <span className="metric-label">发送消息</span>
-                <span className="metric-value">{selectedAgent.metrics.messagesSent}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  return (
-    <div className="sidebar">
-      <div className="sidebar-header">
-        <h2>Agent Factory</h2>
-        {renderConnectionStatus()}
-      </div>
-      
-      <div className="sidebar-tabs">
-        <button 
-          className={`tab-button ${activePanel === 'agents' ? 'active' : ''}`}
-          onClick={() => setActivePanel('agents')}
-        >
-          代理
-        </button>
-        <button 
-          className={`tab-button ${activePanel === 'tasks' ? 'active' : ''}`}
-          onClick={() => setActivePanel('tasks')}
-        >
-          任务
-        </button>
-        <button 
-          className={`tab-button ${activePanel === 'messages' ? 'active' : ''}`}
-          onClick={() => setActivePanel('messages')}
-        >
-          消息
-        </button>
-        <button 
-          className={`tab-button ${activePanel === 'stats' ? 'active' : ''}`}
-          onClick={() => setActivePanel('stats')}
-        >
-          统计
-        </button>
-      </div>
-
-      <div className="sidebar-content">
-        {selectedAgent && renderAgentDetail()}
-        
-        <div className="tab-content">
-          {activePanel === 'agents' && renderAgentList()}
-          {activePanel === 'tasks' && renderTaskQueue()}
-          {activePanel === 'messages' && renderMessages()}
-          {activePanel === 'stats' && renderSystemStats()}
-        </div>
+        )}
       </div>
     </div>
   );
+};
+
+const AgentItem: React.FC<{ agent: Agent; selected: boolean; onClick: () => void }> = ({ agent, selected, onClick }) => (
+  <div
+    onClick={onClick}
+    style={{
+      ...styles.agentItem,
+      ...(selected ? styles.agentItemSelected : {}),
+    }}
+  >
+    <div style={styles.agentInfo}>
+      <span style={styles.agentName}>{agent.name}</span>
+      <span style={styles.agentRole}>{agent.role}</span>
+    </div>
+    <span style={{ color: STATUS_COLOR[agent.status], fontSize: 16 }}>
+      {STATUS_EMOJI[agent.status]}
+    </span>
+  </div>
+);
+
+const StatCard: React.FC<{ label: string; value: number; icon: string; color?: string }> = ({ label, value, icon, color }) => (
+  <div style={styles.statCard}>
+    <div style={{ fontSize: 22 }}>{icon}</div>
+    <div style={{ fontSize: 20, fontWeight: 700, color: color || '#e0e0e0' }}>{value}</div>
+    <div style={{ fontSize: 11, color: '#888' }}>{label}</div>
+  </div>
+);
+
+const styles: Record<string, React.CSSProperties> = {
+  sidebar: { display: 'flex', flexDirection: 'column', height: '100%' },
+  tabs: { display: 'flex', borderBottom: '1px solid #2a2a4a', flexShrink: 0 },
+  tab: {
+    flex: 1, padding: '10px 4px', fontSize: 12, background: 'none',
+    border: 'none', color: '#888', cursor: 'pointer', borderBottom: '2px solid transparent',
+  },
+  tabActive: { color: '#c0c0ff', borderBottomColor: '#7B68EE' },
+  content: { flex: 1, overflow: 'auto', padding: 12 },
+  sectionTitle: { fontSize: 13, fontWeight: 600, color: '#aaa', marginBottom: 10 },
+  agentItem: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    padding: '8px 10px', marginBottom: 4, borderRadius: 6,
+    background: '#1e1e38', cursor: 'pointer', transition: 'background 0.15s',
+  },
+  agentItemSelected: { background: '#2a2a5a', outline: '1px solid #7B68EE' },
+  agentInfo: { display: 'flex', flexDirection: 'column' as const, gap: 2 },
+  agentName: { fontSize: 13, fontWeight: 500, color: '#e0e0e0' },
+  agentRole: { fontSize: 11, color: '#888' },
+  taskItem: { padding: '8px 10px', marginBottom: 6, background: '#1e1e38', borderRadius: 6 },
+  taskTitle: { fontSize: 13, fontWeight: 500, color: '#e0e0e0', marginBottom: 4 },
+  taskMeta: { fontSize: 11, marginBottom: 4 },
+  progressBar: { height: 4, background: '#333', borderRadius: 2, overflow: 'hidden' as const },
+  progressFill: { height: '100%', background: '#7B68EE', borderRadius: 2, transition: 'width 0.3s' },
+  messageItem: { padding: '6px 10px', marginBottom: 4, background: '#1e1e38', borderRadius: 6 },
+  messageContent: { fontSize: 12, color: '#ccc', marginBottom: 2 },
+  messageTime: { fontSize: 10, color: '#666' },
+  empty: { fontSize: 13, color: '#666', textAlign: 'center' as const, padding: 20 },
+  detail: { padding: 12, background: '#1a1a35', borderBottom: '1px solid #2a2a4a' },
+  detailHeader: { display: 'flex', alignItems: 'center', gap: 10 },
+  detailName: { fontSize: 15, fontWeight: 600, color: '#e0e0e0' },
+  detailRole: { fontSize: 12, color: '#888' },
+  closeBtn: { marginLeft: 'auto', background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 16 },
+  detailStatus: { marginTop: 8, fontSize: 13 },
+  metrics: { marginTop: 8 },
+  metricRow: { display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#aaa', padding: '2px 0' },
+  divider: { height: 1, background: '#2a2a4a', marginTop: 8 },
+  statGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 },
+  statCard: {
+    background: '#1e1e38', borderRadius: 8, padding: 12,
+    display: 'flex', flexDirection: 'column' as const, alignItems: 'center', gap: 4,
+  },
 };
 
 export default Sidebar;

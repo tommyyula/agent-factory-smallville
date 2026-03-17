@@ -3,27 +3,20 @@ import MainScene from './scenes/MainScene.js';
 
 export interface GameInstance {
   game: Phaser.Game;
-  scene: MainScene;
+  getScene: () => MainScene | null;
   destroy: () => void;
 }
 
 export function createGame(parent: string | HTMLElement): GameInstance {
   const config: Phaser.Types.Core.GameConfig = {
-    type: Phaser.AUTO,
+    type: Phaser.CANVAS,
     width: 1024,
     height: 768,
     parent: parent,
-    backgroundColor: '#2c3e50',
-    pixelArt: true, // Important for crisp pixel art
+    backgroundColor: '#1a1a2e',
+    pixelArt: true,
     antialias: false,
-    physics: {
-      default: 'arcade',
-      arcade: {
-        gravity: { y: 0 },
-        debug: false
-      }
-    },
-    scene: MainScene,
+    scene: [MainScene],
     scale: {
       mode: Phaser.Scale.RESIZE,
       autoCenter: Phaser.Scale.CENTER_BOTH
@@ -36,15 +29,11 @@ export function createGame(parent: string | HTMLElement): GameInstance {
   };
 
   const game = new Phaser.Game(config);
-  const scene = game.scene.getScene('MainScene') as MainScene;
-
-  console.log('🎮 Phaser game initialized');
 
   return {
     game,
-    scene,
+    getScene: () => game.scene.getScene('MainScene') as MainScene | null,
     destroy: () => {
-      console.log('🎮 Destroying Phaser game');
       game.destroy(true);
     }
   };

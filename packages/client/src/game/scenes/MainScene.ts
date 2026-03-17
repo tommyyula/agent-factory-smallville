@@ -1,594 +1,504 @@
 import Phaser from 'phaser';
-import { PixelArtGenerator } from '../graphics/pixel-art-generator.js';
-import { Agent, AgentStatus, Task } from '@agent-factory/shared';
+import { Agent, AgentStatus } from '@agent-factory/shared';
+
+// Zone definitions for the town
+const ZONES = [
+  { id: 'warehouse', name: '仓储区', x: 900, y: 100, w: 280, h: 200, color: 0x8B4513, buildingColor: 0xA0522D },
+  { id: 'transport', name: '运输区', x: 900, y: 380, w: 280, h: 200, color: 0x4169E1, buildingColor: 0x6495ED },
+  { id: 'customer_service', name: '客服中心', x: 100, y: 100, w: 260, h: 180, color: 0x228B22, buildingColor: 0x32CD32 },
+  { id: 'data_center', name: '数据中心', x: 100, y: 380, w: 260, h: 200, color: 0x483D8B, buildingColor: 0x7B68EE },
+  { id: 'development', name: '开发中心', x: 500, y: 380, w: 280, h: 200, color: 0x8B008B, buildingColor: 0xBA55D3 },
+  { id: 'common', name: '公共区域', x: 480, y: 100, w: 300, h: 180, color: 0x2F4F4F, buildingColor: 0x696969 },
+  { id: 'rest', name: '休息区', x: 500, y: 650, w: 280, h: 160, color: 0x006400, buildingColor: 0x3CB371 },
+  { id: 'quality', name: '质检区', x: 100, y: 650, w: 260, h: 160, color: 0xB8860B, buildingColor: 0xDAA520 },
+];
+
+const AGENT_COLORS = [
+  0xFF6464, // Red - Warehouse
+  0x6496FF, // Blue - Transport
+  0x64FF64, // Green - Customer Service
+  0xFFC864, // Orange - Data Analyst
+  0x9664FF, // Purple - Developer
+  0xFFFF64, // Yellow - Quality
+  0xFF64FF, // Magenta - Planning
+  0x64FFFF, // Cyan - Coordinator
+];
+
+const STATUS_COLORS: Record<string, number> = {
+  idle: 0x808080,
+  thinking: 0xFFD700,
+  executing: 0x00FF00,
+  communicating: 0x00BFFF,
+  error: 0xFF0000,
+  sleeping: 0x4444AA,
+};
+
+interface AgentGameObject {
+  container: Phaser.GameObjects.Container;
+  body: Phaser.GameObjects.Graphics;
+  label: Phaser.GameObjects.Text;
+  statusDot: Phaser.GameObjects.Graphics;
+  roleLabel: Phaser.GameObjects.Text;
+  thoughtBubble: Phaser.GameObjects.Container | null;
+  targetX: number;
+  targetY: number;
+  moving: boolean;
+  colorIndex: number;
+}
 
 export default class MainScene extends Phaser.Scene {
-  private pixelGenerator!: PixelArtGenerator;
-  private tilemap!: Phaser.Tilemaps.Tilemap;
-  private agents = new Map<string, Phaser.GameObjects.Sprite>();
-  private agentLabels = new Map<string, Phaser.GameObjects.Text>();
-  private agentStatusIndicators = new Map<string, Phaser.GameObjects.Sprite>();
-  private thoughtBubbles = new Map<string, Phaser.GameObjects.Container>();
-  private communicationLines: Phaser.GameObjects.Graphics[] = [];
-  
+  private agentObjects = new Map<string, AgentGameObject>();
+  private communicationLines: Phaser.GameObjects.Graphics | null = null;
+  private selectedAgentId: string | null = null;
+  private selectionIndicator: Phaser.GameObjects.Graphics | null = null;
+
   constructor() {
     super({ key: 'MainScene' });
   }
 
-  preload(): void {
-    // No external assets needed - everything generated programmatically
-  }
-
   create(): void {
-    console.log('🎮 MainScene created');
-    
-    // Initialize pixel art generator
-    this.pixelGenerator = new PixelArtGenerator(this);
-    
-    // Generate all graphics
-    this.generateAllGraphics();
-    
-    // Create the town
-    this.createTownTilemap();
+    // Draw the town
+    this.drawTown();
     
     // Setup camera
-    this.setupCamera();
-    
-    // Setup input
-    this.setupInput();
-    
-    // Setup animation configs
-    this.setupAnimations();
-    
-    console.log('✅ MainScene ready');
-  }
+    this.cameras.main.setBounds(0, 0, 1300, 900);
+    this.cameras.main.setZoom(0.85);
+    this.cameras.main.centerOn(650, 450);
 
-  private generateAllGraphics(): void {
-    console.log('🎨 Generating pixel art...');
-    
-    // Generate tileset
-    this.pixelGenerator.generateTileset();
-    
-    // Generate buildings
-    this.pixelGenerator.generateBuildings();
-    
-    // Generate agent sprites
-    this.pixelGenerator.generateAgentSprites();
-    
-    // Generate UI elements
-    this.pixelGenerator.generateUIElements();
-    
-    console.log('✅ Pixel art generated');
-  }
-
-  private createTownTilemap(): void {
-    const mapWidth = 48;
-    const mapHeight = 36;
-    const tileWidth = 32;
-    const tileHeight = 32;
-    
-    // Create tilemap
-    this.tilemap = this.make.tilemap({
-      data: this.pixelGenerator.generateTownTilemap(),
-      tileWidth: tileWidth,
-      tileHeight: tileHeight,
-      width: mapWidth,
-      height: mapHeight
-    });
-    
-    // Create tileset
-    const tileset = this.tilemap.addTilesetImage('tiles', null, tileWidth, tileHeight, 0, 0, 0);
-    
-    // Add tile textures to tileset
-    tileset.setImage(this.textures.get('tile-grass'), 0);
-    tileset.setImage(this.textures.get('tile-path'), 1);
-    tileset.setImage(this.textures.get('tile-road'), 2);
-    tileset.setImage(this.textures.get('tile-water'), 3);
-    
-    // Create layer
-    const groundLayer = this.tilemap.createLayer(0, tileset, 0, 0);
-    
-    if (groundLayer) {
-      groundLayer.setDepth(-10);
-    }
-    
-    // Add buildings
-    this.addBuildings();
-    
-    // Add zone labels
-    this.addZoneLabels();
-  }
-
-  private addBuildings(): void {
-    const buildings = [
-      { x: 1100, y: 450, texture: 'building-warehouse', label: '仓库' },
-      { x: 700, y: 300, texture: 'building-office', label: '客服中心' },
-      { x: 1100, y: 800, texture: 'building-datacenter', label: '数据中心' },
-      { x: 300, y: 850, texture: 'building-office', label: '开发中心' },
-      { x: 1100, y: 650, texture: 'building-transport', label: '运输枢纽' },
-      { x: 200, y: 200, texture: 'building-house', label: '宿舍' },
-      { x: 500, y: 500, texture: 'building-meeting', label: '会议室' }
-    ];
-
-    buildings.forEach(building => {
-      const sprite = this.add.sprite(building.x, building.y, building.texture);
-      sprite.setOrigin(0.5, 0.5);
-      sprite.setDepth(0);
-      
-      // Add building label
-      const label = this.add.text(building.x, building.y + 60, building.label, {
-        fontSize: '14px',
-        color: '#000000',
-        backgroundColor: '#FFFFFF',
-        padding: { x: 4, y: 2 }
-      });
-      label.setOrigin(0.5);
-      label.setDepth(5);
-    });
-  }
-
-  private addZoneLabels(): void {
-    const zones = [
-      { x: 1150, y: 380, text: '仓储区', color: '#FFE4B5' },
-      { x: 1150, y: 580, text: '运输区', color: '#E6F3FF' },
-      { x: 750, y: 250, text: '客服区', color: '#E6FFE6' },
-      { x: 1150, y: 750, text: '数据中心区', color: '#F0E6FF' },
-      { x: 350, y: 780, text: '开发区', color: '#FFE6F0' },
-      { x: 600, y: 450, text: '公共区域', color: '#F5F5F5' }
-    ];
-
-    zones.forEach(zone => {
-      const background = this.add.graphics();
-      background.fillStyle(Phaser.Display.Color.HexStringToColor(zone.color).color, 0.3);
-      background.fillRoundedRect(-60, -12, 120, 24, 4);
-      
-      const text = this.add.text(0, 0, zone.text, {
-        fontSize: '16px',
-        color: '#333333',
-        fontStyle: 'bold'
-      });
-      text.setOrigin(0.5);
-      
-      const container = this.add.container(zone.x, zone.y, [background, text]);
-      container.setDepth(1);
-    });
-  }
-
-  private setupCamera(): void {
-    // Set camera bounds to tilemap size
-    const mapWidth = 48 * 32;
-    const mapHeight = 36 * 32;
-    
-    this.cameras.main.setBounds(0, 0, mapWidth, mapHeight);
-    this.cameras.main.setZoom(0.8);
-    
-    // Center camera on the town
-    this.cameras.main.centerOn(mapWidth / 2, mapHeight / 2);
-    
-    // Enable camera controls
-    const cursors = this.input.keyboard?.createCursorKeys();
-    
-    if (cursors) {
-      // Camera movement with arrow keys
-      this.input.keyboard?.on('keydown', (event: KeyboardEvent) => {
-        const speed = 5;
-        switch (event.code) {
-          case 'ArrowLeft':
-            this.cameras.main.scrollX -= speed;
-            break;
-          case 'ArrowRight':
-            this.cameras.main.scrollX += speed;
-            break;
-          case 'ArrowUp':
-            this.cameras.main.scrollY -= speed;
-            break;
-          case 'ArrowDown':
-            this.cameras.main.scrollY += speed;
-            break;
-        }
-      });
-    }
-    
     // Mouse wheel zoom
-    this.input.on('wheel', (pointer: any, gameObjects: any, deltaX: number, deltaY: number, deltaZ: number) => {
-      const zoomChange = deltaY > 0 ? -0.1 : 0.1;
-      const newZoom = Phaser.Math.Clamp(this.cameras.main.zoom + zoomChange, 0.4, 2.0);
-      this.cameras.main.setZoom(newZoom);
+    this.input.on('wheel', (_p: any, _g: any, _dx: number, dy: number) => {
+      const z = Phaser.Math.Clamp(this.cameras.main.zoom + (dy > 0 ? -0.05 : 0.05), 0.4, 2.0);
+      this.cameras.main.setZoom(z);
     });
-  }
 
-  private setupInput(): void {
-    // Click handling for agent selection
-    this.input.on('gameobjectdown', (pointer: any, gameObject: any) => {
-      if (gameObject.getData && gameObject.getData('agentId')) {
-        this.selectAgent(gameObject.getData('agentId'));
+    // Drag to pan
+    let dragStartX = 0, dragStartY = 0;
+    this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
+      dragStartX = p.worldX;
+      dragStartY = p.worldY;
+    });
+    this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
+      if (p.isDown) {
+        this.cameras.main.scrollX += dragStartX - p.worldX;
+        this.cameras.main.scrollY += dragStartY - p.worldY;
       }
     });
-    
-    // Scene click for deselection
-    this.input.on('pointerdown', (pointer: any) => {
-      if (pointer.downElement === this.game.canvas) {
-        this.selectAgent(null);
-      }
-    });
+
+    // Communication lines layer
+    this.communicationLines = this.add.graphics();
+    this.communicationLines.setDepth(5);
+
+    // Selection indicator
+    this.selectionIndicator = this.add.graphics();
+    this.selectionIndicator.setDepth(25);
+
+    console.log('✅ MainScene ready');
+    this.events.emit('sceneReady');
   }
 
-  private setupAnimations(): void {
-    // Setup agent animations for all agent types
-    for (let i = 0; i < 8; i++) {
-      const agentKey = `agent-${i}`;
-      
-      // Idle animations (4 directions)
-      this.anims.create({
-        key: `${agentKey}-idle-down`,
-        frames: this.anims.generateFrameNumbers(agentKey, { frames: [0, 1] }),
-        frameRate: 2,
-        repeat: -1
-      });
-      
-      this.anims.create({
-        key: `${agentKey}-idle-up`,
-        frames: this.anims.generateFrameNumbers(agentKey, { frames: [12, 13] }),
-        frameRate: 2,
-        repeat: -1
-      });
-      
-      this.anims.create({
-        key: `${agentKey}-idle-left`,
-        frames: this.anims.generateFrameNumbers(agentKey, { frames: [24, 25] }),
-        frameRate: 2,
-        repeat: -1
-      });
-      
-      this.anims.create({
-        key: `${agentKey}-idle-right`,
-        frames: this.anims.generateFrameNumbers(agentKey, { frames: [36, 37] }),
-        frameRate: 2,
-        repeat: -1
-      });
-      
-      // Walking animations
-      this.anims.create({
-        key: `${agentKey}-walk-down`,
-        frames: this.anims.generateFrameNumbers(agentKey, { frames: [0, 1, 2, 3] }),
-        frameRate: 8,
-        repeat: -1
-      });
-      
-      this.anims.create({
-        key: `${agentKey}-walk-up`,
-        frames: this.anims.generateFrameNumbers(agentKey, { frames: [12, 13, 14, 15] }),
-        frameRate: 8,
-        repeat: -1
-      });
-      
-      this.anims.create({
-        key: `${agentKey}-walk-left`,
-        frames: this.anims.generateFrameNumbers(agentKey, { frames: [24, 25, 26, 27] }),
-        frameRate: 8,
-        repeat: -1
-      });
-      
-      this.anims.create({
-        key: `${agentKey}-walk-right`,
-        frames: this.anims.generateFrameNumbers(agentKey, { frames: [36, 37, 38, 39] }),
-        frameRate: 8,
-        repeat: -1
-      });
-      
-      // Working animation
-      this.anims.create({
-        key: `${agentKey}-working`,
-        frames: this.anims.generateFrameNumbers(agentKey, { frames: [32, 33, 34, 35] }),
-        frameRate: 4,
-        repeat: -1
-      });
-      
-      // Thinking animation
-      this.anims.create({
-        key: `${agentKey}-thinking`,
-        frames: this.anims.generateFrameNumbers(agentKey, { frames: [8, 9, 10, 11] }),
-        frameRate: 2,
-        repeat: -1
-      });
+  update(_time: number, _delta: number): void {
+    // Animate agent movement
+    this.agentObjects.forEach((obj) => {
+      if (obj.moving) {
+        const dx = obj.targetX - obj.container.x;
+        const dy = obj.targetY - obj.container.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 2) {
+          obj.container.setPosition(obj.targetX, obj.targetY);
+          obj.moving = false;
+        } else {
+          const speed = 1.5;
+          obj.container.x += (dx / dist) * speed;
+          obj.container.y += (dy / dist) * speed;
+        }
+      }
+
+      // Bob the thought bubble
+      if (obj.thoughtBubble) {
+        obj.thoughtBubble.y = -50 + Math.sin(this.time.now / 500) * 3;
+      }
+    });
+
+    // Update selection ring
+    if (this.selectionIndicator && this.selectedAgentId) {
+      const obj = this.agentObjects.get(this.selectedAgentId);
+      if (obj) {
+        this.selectionIndicator.clear();
+        this.selectionIndicator.lineStyle(2, 0xFFFF00, 0.8);
+        this.selectionIndicator.strokeCircle(obj.container.x, obj.container.y - 8, 22);
+      }
     }
   }
 
-  // Public methods for external control
-  public addAgent(agent: Agent): void {
-    const agentTypeIndex = this.getAgentTypeIndex(agent.type);
-    const spriteKey = `agent-${agentTypeIndex}`;
-    
-    // Create agent sprite
-    const sprite = this.add.sprite(agent.location.x, agent.location.y, spriteKey);
-    sprite.setOrigin(0.5, 1.0);
-    sprite.setDepth(10);
-    sprite.setInteractive();
-    sprite.setData('agentId', agent.id);
-    
-    // Create name label
-    const nameLabel = this.add.text(agent.location.x, agent.location.y - 60, agent.name, {
-      fontSize: '12px',
-      color: '#FFFFFF',
-      backgroundColor: '#333333',
-      padding: { x: 4, y: 2 }
+  // --- Drawing the town ---
+
+  private drawTown(): void {
+    // Background grass
+    const bg = this.add.graphics();
+    bg.fillStyle(0x2d5a27, 1);
+    bg.fillRect(0, 0, 1300, 900);
+    bg.setDepth(-10);
+
+    // Paths between zones (roads)
+    const roads = this.add.graphics();
+    roads.fillStyle(0x666666, 1);
+    // Horizontal road
+    roads.fillRect(0, 310, 1300, 50);
+    // Vertical road
+    roads.fillRect(420, 0, 50, 900);
+    // Cross road
+    roads.fillRect(820, 0, 50, 900);
+    // Road markings
+    roads.lineStyle(2, 0xCCCC00, 0.5);
+    for (let x = 0; x < 1300; x += 30) {
+      roads.lineBetween(x, 335, x + 15, 335);
+    }
+    for (let y = 0; y < 900; y += 30) {
+      roads.lineBetween(445, y, 445, y + 15);
+      roads.lineBetween(845, y, 845, y + 15);
+    }
+    roads.setDepth(-5);
+
+    // Draw zones
+    ZONES.forEach(zone => {
+      this.drawZone(zone);
     });
-    nameLabel.setOrigin(0.5);
-    nameLabel.setDepth(15);
-    
-    // Create status indicator
-    const statusKey = this.getStatusIndicatorKey(agent.status);
-    const statusIndicator = this.add.sprite(agent.location.x + 16, agent.location.y - 48, statusKey);
-    statusIndicator.setOrigin(0.5);
-    statusIndicator.setDepth(16);
-    
-    // Store references
-    this.agents.set(agent.id, sprite);
-    this.agentLabels.set(agent.id, nameLabel);
-    this.agentStatusIndicators.set(agent.id, statusIndicator);
-    
-    // Set initial animation
-    this.updateAgentAnimation(agent.id, agent.status, false);
-    
-    console.log(`➕ Added agent: ${agent.name} at (${agent.location.x}, ${agent.location.y})`);
+
+    // Decorations — trees
+    const treePositions = [
+      [30, 40], [380, 50], [1250, 40], [30, 850], [1250, 850],
+      [460, 640], [380, 640], [880, 640], [460, 300], [880, 300],
+    ];
+    treePositions.forEach(([tx, ty]) => this.drawTree(tx, ty));
+  }
+
+  private drawZone(zone: typeof ZONES[0]): void {
+    const g = this.add.graphics();
+
+    // Zone ground (slightly different shade)
+    g.fillStyle(zone.color, 0.15);
+    g.fillRoundedRect(zone.x, zone.y, zone.w, zone.h, 8);
+    g.lineStyle(1, zone.color, 0.4);
+    g.strokeRoundedRect(zone.x, zone.y, zone.w, zone.h, 8);
+    g.setDepth(-3);
+
+    // Building
+    const bx = zone.x + zone.w / 2 - 40;
+    const by = zone.y + 20;
+    const bw = 80;
+    const bh = 60;
+
+    const building = this.add.graphics();
+    // Building body
+    building.fillStyle(zone.buildingColor, 0.9);
+    building.fillRect(bx, by, bw, bh);
+    // Roof
+    building.fillStyle(zone.buildingColor, 1);
+    building.fillTriangle(bx - 5, by, bx + bw / 2, by - 20, bx + bw + 5, by);
+    // Door
+    building.fillStyle(0x4a3728, 1);
+    building.fillRect(bx + bw / 2 - 8, by + bh - 20, 16, 20);
+    // Windows
+    building.fillStyle(0xFFFF88, 0.8);
+    building.fillRect(bx + 10, by + 10, 14, 14);
+    building.fillRect(bx + bw - 24, by + 10, 14, 14);
+    building.fillRect(bx + 10, by + 32, 14, 14);
+    building.fillRect(bx + bw - 24, by + 32, 14, 14);
+    building.setDepth(-2);
+
+    // Zone label
+    const label = this.add.text(zone.x + zone.w / 2, zone.y + zone.h - 15, zone.name, {
+      fontSize: '13px',
+      color: '#FFFFFF',
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 3,
+    });
+    label.setOrigin(0.5);
+    label.setDepth(-1);
+  }
+
+  private drawTree(x: number, y: number): void {
+    const tree = this.add.graphics();
+    // Trunk
+    tree.fillStyle(0x8B4513, 1);
+    tree.fillRect(x - 3, y, 6, 12);
+    // Leaves
+    tree.fillStyle(0x1B5E20, 1);
+    tree.fillCircle(x, y - 4, 12);
+    tree.fillStyle(0x2E7D32, 0.8);
+    tree.fillCircle(x - 4, y, 8);
+    tree.fillCircle(x + 4, y, 8);
+    tree.setDepth(-1);
+  }
+
+  // --- Agent management ---
+
+  public addAgent(agent: Agent): void {
+    if (this.agentObjects.has(agent.id)) return;
+
+    const colorIndex = this.getAgentColorIndex(agent.type);
+    const color = AGENT_COLORS[colorIndex] ?? 0xCCCCCC;
+    const loc = this.getZonePosition(agent.location?.zone || 'common');
+
+    const container = this.add.container(loc.x, loc.y);
+    container.setDepth(10);
+    container.setSize(32, 48);
+    container.setInteractive();
+
+    // Character body (simple pixel person)
+    const body = this.add.graphics();
+    this.drawCharacter(body, color);
+    container.add(body);
+
+    // Status dot
+    const statusDot = this.add.graphics();
+    const sc = STATUS_COLORS[agent.status] ?? 0x808080;
+    statusDot.fillStyle(sc, 1);
+    statusDot.fillCircle(12, -22, 5);
+    statusDot.lineStyle(1, 0x000000, 0.5);
+    statusDot.strokeCircle(12, -22, 5);
+    container.add(statusDot);
+
+    // Name label
+    const label = this.add.text(0, 18, agent.name, {
+      fontSize: '10px',
+      color: '#FFFFFF',
+      stroke: '#000000',
+      strokeThickness: 2,
+    });
+    label.setOrigin(0.5, 0);
+    container.add(label);
+
+    // Role label
+    const roleLabel = this.add.text(0, 30, agent.role || '', {
+      fontSize: '9px',
+      color: '#AAAAAA',
+      stroke: '#000000',
+      strokeThickness: 1,
+    });
+    roleLabel.setOrigin(0.5, 0);
+    container.add(roleLabel);
+
+    // Click handler
+    container.on('pointerdown', () => {
+      this.selectAgent(agent.id);
+    });
+
+    // Hover effect
+    container.on('pointerover', () => {
+      container.setScale(1.15);
+    });
+    container.on('pointerout', () => {
+      container.setScale(1.0);
+    });
+
+    const obj: AgentGameObject = {
+      container,
+      body,
+      label,
+      statusDot,
+      roleLabel,
+      thoughtBubble: null,
+      targetX: loc.x,
+      targetY: loc.y,
+      moving: false,
+      colorIndex,
+    };
+
+    this.agentObjects.set(agent.id, obj);
+
+    // Show thought if agent is working
+    if (agent.status === AgentStatus.EXECUTING || agent.status === AgentStatus.THINKING) {
+      const taskDesc = (agent as any).currentTaskTitle || agent.role || '工作中...';
+      this.showThoughtBubble(agent.id, taskDesc, 8000);
+    }
+  }
+
+  private drawCharacter(g: Phaser.GameObjects.Graphics, color: number): void {
+    // Head
+    g.fillStyle(0xFFDBB0, 1); // skin
+    g.fillRect(-5, -24, 10, 10);
+    // Hair
+    g.fillStyle(0x3a2a1a, 1);
+    g.fillRect(-6, -26, 12, 4);
+    // Eyes
+    g.fillStyle(0x000000, 1);
+    g.fillRect(-3, -20, 2, 2);
+    g.fillRect(1, -20, 2, 2);
+    // Body (colored by role)
+    g.fillStyle(color, 1);
+    g.fillRect(-6, -14, 12, 14);
+    // Arms
+    g.fillStyle(color, 0.8);
+    g.fillRect(-9, -12, 3, 10);
+    g.fillRect(6, -12, 3, 10);
+    // Legs
+    g.fillStyle(0x2a2a5a, 1);
+    g.fillRect(-5, 0, 4, 8);
+    g.fillRect(1, 0, 4, 8);
+    // Shoes
+    g.fillStyle(0x333333, 1);
+    g.fillRect(-6, 7, 5, 3);
+    g.fillRect(1, 7, 5, 3);
   }
 
   public updateAgent(agentId: string, agent: Agent): void {
-    const sprite = this.agents.get(agentId);
-    const label = this.agentLabels.get(agentId);
-    const indicator = this.agentStatusIndicators.get(agentId);
-    
-    if (sprite && label && indicator) {
-      // Update position
-      sprite.setPosition(agent.location.x, agent.location.y);
-      label.setPosition(agent.location.x, agent.location.y - 60);
-      indicator.setPosition(agent.location.x + 16, agent.location.y - 48);
-      
-      // Update status indicator
-      const statusKey = this.getStatusIndicatorKey(agent.status);
-      indicator.setTexture(statusKey);
-      
-      // Update animation
-      this.updateAgentAnimation(agentId, agent.status, false);
-    }
-  }
+    const obj = this.agentObjects.get(agentId);
+    if (!obj) return;
 
-  public moveAgent(agentId: string, fromLocation: any, toLocation: any): void {
-    const sprite = this.agents.get(agentId);
-    const label = this.agentLabels.get(agentId);
-    const indicator = this.agentStatusIndicators.get(agentId);
+    // Update status dot
+    const sc = STATUS_COLORS[agent.status] ?? 0x808080;
+    obj.statusDot.clear();
+    obj.statusDot.fillStyle(sc, 1);
+    obj.statusDot.fillCircle(12, -22, 5);
+    obj.statusDot.lineStyle(1, 0x000000, 0.5);
+    obj.statusDot.strokeCircle(12, -22, 5);
+
+    // Move to new zone if changed
+    const targetZone = agent.location?.zone || 'common';
+    const targetPos = this.getZonePosition(targetZone);
     
-    if (sprite && label && indicator) {
-      // Calculate direction for animation
-      const deltaX = toLocation.x - fromLocation.x;
-      const deltaY = toLocation.y - fromLocation.y;
-      let direction = 'down';
-      
-      if (Math.abs(deltaX) > Math.abs(deltaY)) {
-        direction = deltaX > 0 ? 'right' : 'left';
-      } else {
-        direction = deltaY > 0 ? 'down' : 'up';
-      }
-      
-      // Start walking animation
-      const agentTypeIndex = this.getAgentTypeFromSprite(sprite);
-      sprite.play(`agent-${agentTypeIndex}-walk-${direction}`);
-      
-      // Tween movement
-      const duration = 2000; // 2 seconds
-      
-      this.tweens.add({
-        targets: sprite,
-        x: toLocation.x,
-        y: toLocation.y,
-        duration: duration,
-        ease: 'Linear',
-        onComplete: () => {
-          // Switch back to idle
-          sprite.play(`agent-${agentTypeIndex}-idle-${direction}`);
-        }
-      });
-      
-      this.tweens.add({
-        targets: label,
-        x: toLocation.x,
-        y: toLocation.y - 60,
-        duration: duration,
-        ease: 'Linear'
-      });
-      
-      this.tweens.add({
-        targets: indicator,
-        x: toLocation.x + 16,
-        y: toLocation.y - 48,
-        duration: duration,
-        ease: 'Linear'
-      });
-      
-      console.log(`🚶 Moving agent ${agentId} to (${toLocation.x}, ${toLocation.y})`);
+    // Add some randomness within the zone
+    const offsetX = (Math.random() - 0.5) * 100;
+    const offsetY = (Math.random() - 0.5) * 60 + 40;
+
+    obj.targetX = targetPos.x + offsetX;
+    obj.targetY = targetPos.y + offsetY;
+    obj.moving = true;
+
+    // Manage thought bubbles based on status
+    if (agent.status === AgentStatus.EXECUTING || agent.status === AgentStatus.THINKING) {
+      const text = (agent as any).currentTaskTitle || agent.role || '工作中...';
+      this.showThoughtBubble(agentId, text, 6000);
+    } else if (agent.status === AgentStatus.IDLE || agent.status === AgentStatus.SLEEPING) {
+      this.hideThoughtBubble(agentId);
     }
   }
 
   public showThoughtBubble(agentId: string, content: string, duration: number): void {
-    const sprite = this.agents.get(agentId);
-    if (!sprite) return;
-    
-    // Remove existing thought bubble
+    const obj = this.agentObjects.get(agentId);
+    if (!obj) return;
     this.hideThoughtBubble(agentId);
-    
-    // Create thought bubble container
-    const bubble = this.add.container(sprite.x, sprite.y - 80);
-    
-    // Background bubble
-    const bubbleSprite = this.add.sprite(0, 0, 'thought-bubble');
-    bubbleSprite.setScale(1);
-    
-    // Text content (truncated to fit)
-    const text = this.add.text(0, -5, this.truncateText(content, 60), {
-      fontSize: '10px',
+
+    const bubble = this.add.container(0, -50);
+
+    // Bubble background
+    const bg = this.add.graphics();
+    const text = content.length > 30 ? content.substring(0, 27) + '...' : content;
+    const textObj = this.add.text(0, -5, text, {
+      fontSize: '9px',
       color: '#000000',
       align: 'center',
-      wordWrap: { width: 70 }
+      wordWrap: { width: 90 },
     });
-    text.setOrigin(0.5);
-    
-    bubble.add([bubbleSprite, text]);
+    textObj.setOrigin(0.5);
+
+    const tw = Math.max(textObj.width + 16, 40);
+    const th = textObj.height + 12;
+    bg.fillStyle(0xFFFFFF, 0.92);
+    bg.fillRoundedRect(-tw / 2, -th / 2 - 5, tw, th, 6);
+    // Tail
+    bg.fillTriangle(-4, th / 2 - 5, 4, th / 2 - 5, 0, th / 2 + 5);
+
+    bubble.add([bg, textObj]);
     bubble.setDepth(20);
-    
-    this.thoughtBubbles.set(agentId, bubble);
-    
-    // Auto-hide after duration
+
+    obj.container.add(bubble);
+    obj.thoughtBubble = bubble;
+
     this.time.delayedCall(duration, () => {
       this.hideThoughtBubble(agentId);
     });
-    
-    console.log(`💭 Showing thought bubble for ${agentId}: "${content}"`);
   }
 
   public hideThoughtBubble(agentId: string): void {
-    const bubble = this.thoughtBubbles.get(agentId);
-    if (bubble) {
-      bubble.destroy();
-      this.thoughtBubbles.delete(agentId);
+    const obj = this.agentObjects.get(agentId);
+    if (obj?.thoughtBubble) {
+      obj.thoughtBubble.destroy();
+      obj.thoughtBubble = null;
     }
   }
 
-  public showCommunicationLine(fromAgentId: string, toAgentId: string, duration: number = 2000): void {
-    const fromSprite = this.agents.get(fromAgentId);
-    const toSprite = this.agents.get(toAgentId);
-    
-    if (fromSprite && toSprite) {
-      const line = this.add.graphics();
-      line.lineStyle(3, 0x00BFFF, 0.8);
-      line.beginPath();
-      line.moveTo(fromSprite.x, fromSprite.y - 24);
-      line.lineTo(toSprite.x, toSprite.y - 24);
-      line.strokePath();
-      line.setDepth(5);
-      
-      // Add animated dots
-      const dots = [];
-      for (let i = 0; i < 3; i++) {
-        const dot = this.add.circle(fromSprite.x, fromSprite.y - 24, 3, 0x00BFFF);
-        dot.setDepth(6);
-        dots.push(dot);
-        
-        this.tweens.add({
-          targets: dot,
-          x: toSprite.x,
-          y: toSprite.y - 24,
-          duration: duration,
-          delay: i * 200,
-          ease: 'Power2',
-          onComplete: () => {
-            dot.destroy();
-          }
-        });
-      }
-      
-      this.communicationLines.push(line);
-      
-      // Remove line after duration
-      this.time.delayedCall(duration, () => {
-        line.destroy();
-        const index = this.communicationLines.indexOf(line);
-        if (index > -1) {
-          this.communicationLines.splice(index, 1);
-        }
-      });
-      
-      console.log(`📞 Communication line: ${fromAgentId} → ${toAgentId}`);
+  public showCommunicationLine(fromId: string, toId: string, duration: number = 2000): void {
+    const from = this.agentObjects.get(fromId);
+    const to = this.agentObjects.get(toId);
+    if (!from || !to || !this.communicationLines) return;
+
+    const g = this.add.graphics();
+    g.setDepth(5);
+
+    // Dashed line
+    g.lineStyle(2, 0x00BFFF, 0.7);
+    const x1 = from.container.x, y1 = from.container.y - 8;
+    const x2 = to.container.x, y2 = to.container.y - 8;
+    const dx = x2 - x1, dy = y2 - y1;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    const dashLen = 8;
+    const steps = Math.floor(len / dashLen);
+    for (let i = 0; i < steps; i += 2) {
+      const sx = x1 + (dx * i) / steps;
+      const sy = y1 + (dy * i) / steps;
+      const ex = x1 + (dx * (i + 1)) / steps;
+      const ey = y1 + (dy * (i + 1)) / steps;
+      g.lineBetween(sx, sy, ex, ey);
     }
+
+    // Animated dot
+    const dot = this.add.circle(x1, y1, 4, 0x00FFFF, 1);
+    dot.setDepth(6);
+    this.tweens.add({
+      targets: dot,
+      x: x2, y: y2,
+      duration,
+      ease: 'Power2',
+      onComplete: () => { dot.destroy(); g.destroy(); }
+    });
   }
 
   public selectAgent(agentId: string | null): void {
-    // Remove previous selection indicators
-    this.agents.forEach(sprite => {
-      sprite.clearTint();
-    });
-    
+    this.selectedAgentId = agentId;
+
+    if (this.selectionIndicator) {
+      this.selectionIndicator.clear();
+    }
+
     if (agentId) {
-      const sprite = this.agents.get(agentId);
-      if (sprite) {
-        // Highlight selected agent
-        sprite.setTint(0xffff88);
-        
-        // Focus camera on agent
-        this.cameras.main.pan(sprite.x, sprite.y, 500, 'Power2');
-        
-        console.log(`👆 Selected agent: ${agentId}`);
-        
-        // Emit selection event (will be handled by React)
-        this.events.emit('agentSelected', agentId);
+      const obj = this.agentObjects.get(agentId);
+      if (obj) {
+        this.cameras.main.pan(obj.container.x, obj.container.y, 400, 'Power2');
       }
     }
+
+    this.events.emit('agentSelected', agentId);
   }
 
-  // Helper methods
-  private getAgentTypeIndex(type: string): number {
-    const typeMap: Record<string, number> = {
-      'warehouse': 0,
-      'transportation': 1,
-      'customer_service': 2,
-      'data_analyst': 3,
-      'developer': 4,
-      'quality': 5,
-      'planning': 6,
-      'coordinator': 7
+  public moveAgent(agentId: string, _from: any, to: any): void {
+    const obj = this.agentObjects.get(agentId);
+    if (!obj) return;
+    obj.targetX = to.x;
+    obj.targetY = to.y;
+    obj.moving = true;
+  }
+
+  // --- Helpers ---
+
+  private getAgentColorIndex(type: string): number {
+    const map: Record<string, number> = {
+      warehouse: 0, transportation: 1, transport: 1,
+      customer_service: 2, data_analyst: 3, data_analysis: 3,
+      developer: 4, development: 4, quality: 5,
+      planning: 6, coordinator: 7,
     };
-    return typeMap[type] || 0;
+    return map[type] ?? 0;
   }
 
-  private getAgentTypeFromSprite(sprite: Phaser.GameObjects.Sprite): number {
-    const textureKey = sprite.texture.key;
-    return parseInt(textureKey.split('-')[1]) || 0;
-  }
-
-  private getStatusIndicatorKey(status: AgentStatus): string {
-    const statusMap: Record<string, string> = {
-      'idle': 'status-idle',
-      'thinking': 'status-thinking',
-      'executing': 'status-executing',
-      'communicating': 'status-communicating',
-      'error': 'status-error',
-      'sleeping': 'status-sleeping'
-    };
-    return statusMap[status] || 'status-idle';
-  }
-
-  private updateAgentAnimation(agentId: string, status: AgentStatus, isMoving: boolean): void {
-    const sprite = this.agents.get(agentId);
-    if (!sprite) return;
-    
-    const agentTypeIndex = this.getAgentTypeFromSprite(sprite);
-    const direction = 'down'; // Default direction
-    
-    let animationKey = '';
-    
-    if (isMoving) {
-      animationKey = `agent-${agentTypeIndex}-walk-${direction}`;
-    } else {
-      switch (status) {
-        case AgentStatus.THINKING:
-          animationKey = `agent-${agentTypeIndex}-thinking`;
-          break;
-        case AgentStatus.EXECUTING:
-          animationKey = `agent-${agentTypeIndex}-working`;
-          break;
-        case AgentStatus.COMMUNICATING:
-          animationKey = `agent-${agentTypeIndex}-idle-${direction}`;
-          break;
-        default:
-          animationKey = `agent-${agentTypeIndex}-idle-${direction}`;
-      }
+  private getZonePosition(zoneId: string): { x: number; y: number } {
+    const zone = ZONES.find(z => z.id === zoneId);
+    if (zone) {
+      return { x: zone.x + zone.w / 2, y: zone.y + zone.h / 2 };
     }
-    
-    if (sprite.anims.currentAnim?.key !== animationKey) {
-      sprite.play(animationKey);
-    }
-  }
-
-  private truncateText(text: string, maxLength: number): string {
-    return text.length > maxLength ? text.substring(0, maxLength - 3) + '...' : text;
+    // Default to common area
+    return { x: 630, y: 190 };
   }
 }
